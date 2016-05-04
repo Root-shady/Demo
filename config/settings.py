@@ -81,7 +81,7 @@ DATABASES = {
         'ENGINE': 'mysql.connector.django',
 		'USER': 'shady',
 		'PASSWORD': '6566619',
-		'NAME': 'shady_demo',
+		'NAME': 'shady_democopy',
     }
 }
 
