@@ -4,18 +4,22 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
 
 # Create your views here.
-from rest_framework.decorators import api_view, renderer_classes
+from rest_framework.decorators import api_view, renderer_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.renderers import JSONRenderer, BrowsableAPIRenderer
 from rest_framework.parsers import JSONParser, FileUploadParser
 from rest_framework.views import APIView
+from rest_framework.authtoken.models import Token
+from rest_framework.permissions import IsAuthenticated, AllowAny
+
 from .models import UserProfile
 from .serializer import UserProfileSerializer
 import openpyxl
 from openpyxl.cell import  get_column_letter, column_index_from_string
 
 @api_view(['GET', 'POST'])
+@permission_classes((AllowAny, ))
 def register(request, format=None):
 	"""
 	Create a new user
@@ -34,6 +38,7 @@ def register(request, format=None):
 
 @api_view(['POST'])
 @renderer_classes((BrowsableAPIRenderer,JSONRenderer,))
+@permission_classes((AllowAny, ))
 def user_login(request, format=None):
 	"""
 	Login a user
@@ -48,10 +53,11 @@ def user_login(request, format=None):
 			# the password verified for the user
 			if user.is_active:
 				login(request, user)
-				print(request.user)
-				user = User.objects.get(username=username)
+				token = Token.objects.get(user=user)
+				#user = User.objects.get(username=username)
 				user = UserProfile.objects.get(user=user)
 
+				feedback['token'] = token.key
 				feedback['id'] = user.id
 				feedback['is_admin'] = user.is_admin
 				feedback['username'] = user.user.username
@@ -73,13 +79,39 @@ def user_logout(request, format=None):
 	logout(request)
 	return Response(status=status.HTTP_200_OK)
 
+# Decide whether the logged user has the permission to seeing things
+# Needs to be refactor
+def has_admin_permission(request):
+	if not request.user.is_authenticated():
+		return False
+	try:
+		userPro =  UserProfile.objects.get(user=request.user)
+	except:
+		return False
+	if userPro.is_admin:
+		return True
+	return False
+
+def has_permissiomes(request, uid):
+	if not request.user.is_authenticated():
+		return False
+	try:
+		userPro =  UserProfile.objects.get(user=request.user)
+	except:
+		return False
+	if userPro.is_admin:
+		return True
+	if str(userPro.id) == uid:
+		return True
+	return False
+
+
 @api_view(['GET'])
 def user_profile(request, user_id, format=None):
 	"""
 	Display specific user information
 	"""
-	print(request.user)
-	if not request.user.is_authenticated():
+	if not has_permissiomes(request, user_id):
 		return Response(status=status.HTTP_400_BAD_REQUEST)
 	if request.method == 'GET':
 		try:
@@ -94,21 +126,37 @@ def user_edit(request, user_id, format=None):
 	"""
 	Update the user profile
 	"""
-	print(request.user.username)
-	print(request.user.id)
-	if not request.user.is_authenticated or request.user.id != user_id:
+	if not has_permissiomes(request, user_id):
 		return Response(status=status.HTTP_400_BAD_REQUEST)
-
 	try:
-		user = UserProfile.objects.get(pk=user_id)
+		userPro = UserProfile.objects.get(pk=user_id)
 	except UserProfile.DoesNotExist:
 		return Response(status=status.HTTP_404_NOT_FOUND)
 	if request.method == 'POST':
-		serializer =  UserProfileSerializer(user, data=request.data)
-		if serializer.is_valid():
-			serializer.save()
-			return Response(serializer.data)
-		return Response(serializer.errors, status.HTTP_400_BAD_REQUEST)
+		try:
+			data = request.data
+			userPro.sex = data.get('sex', userPro.sex)
+			userPro.image = data.get('image', userPro.image)
+
+			if 'user' in data:
+				# Username validation
+				username = data['user'].get('username', userPro.user.username)
+				if userPro.user.username != username:
+					try:
+						valid_check = User.objects.get(username=username)
+						data = {'error': 'An username has existed'}
+						return Response(data, status=status.HTTP_400_BAD_REQUEST)
+					except:
+						userPro.user.username = username
+				userPro.user.set_password(data['user'].get('password', userPro.user.password))
+				# Email Validation
+				userPro.user.email = data['user'].get('email', userPro.user.email)
+			# Save the user in the user model
+			userPro.user.save()
+			userPro.save()
+			return  Response(status=status.HTTP_200_OK)
+		except:
+			return Response(serializer.errors, status.HTTP_400_BAD_REQUEST)
 
 # The below is the admin method
 #def is_authenticated(request):
@@ -118,6 +166,8 @@ def admin_all(request, format=None):
 	"""
 	Return all the created user to the admin
 	"""
+	if not has_admin_permission(request):
+		return Response(status=status.HTTP_400_BAD_REQUEST)
 	users = UserProfile.objects.all()
 	if request.method == 'GET':
 		serializer = UserProfileSerializer(users, many=True)
@@ -128,6 +178,8 @@ def admin_del(request, user_id, format=None):
 	"""
 	Delete specified user
 	"""
+	if not has_admin_permission(request):
+		return Response(status=status.HTTP_400_BAD_REQUEST)
 	try:
 		userPro = UserProfile.objects.get(pk=user_id)
 	except UserProfile.DoesNotExist:
@@ -146,6 +198,8 @@ def admin_update(request, user_id, format=None):
 	"""
 	Update the user profile
 	"""
+	if not has_admin_permission(request):
+		return Response(status=status.HTTP_400_BAD_REQUEST)
 	try:
 		userPro = UserProfile.objects.get(pk=user_id)
 	except UserProfile.DoesNotExist:
@@ -186,6 +240,8 @@ def admin_userAdd(request, format=None):
 	"""
 	Take in an excel file, than read the file and create user
 	"""
+	if not has_admin_permission(request):
+		return Response(status=status.HTTP_400_BAD_REQUEST)
 	wb =  openpyxl.load_workbook('book1.xlsx')
 	sheet =  wb.get_sheet_by_name('Sheet1')
 
@@ -197,6 +253,8 @@ def admin_excel(request, format=None):
 	When the admin request for the excel file, it generate a excel file 
 	according to the current system
 	"""
+	if not has_admin_permission(request):
+		return Response(status=status.HTTP_400_BAD_REQUEST)
 	if request.method == 'GET':
 		wb = openpyxl.Workbook()
 		sheet = wb.active
@@ -228,11 +286,12 @@ def upload_form(request):
 @api_view(['POST'])
 @renderer_classes((JSONRenderer, ))
 def admin_upload(request, format='None'):
+	if not has_admin_permission(request):
+		return Response(status=status.HTTP_400_BAD_REQUEST)
 	parser_classes = (FileUploadParser, )
 	up_file = request.FILES.get('file', None)
 	if up_file is None:
 		return Response("Emppty")
-	print(up_file.name)
 	path = '../collectStatic/media_root/' + up_file
 	destination = open(path, 'wb+')
 	for chunk in up_file.chunks():
@@ -243,12 +302,9 @@ def admin_upload(request, format='None'):
 	# ...
 	with open(path, 'rb') as fp:
 		content = fp.readlines()
-		print(content)
  # do some stuff with uploaded file
 		wb = openpyxl.load_workbook(path)
 		sheet = wb.get_sheet_by_name('Sheet1')
-		print(sheet.max_column)
-		print(sheet.max_row)
 		endpoint = get_column_letter(sheet.max_column) + str(sheet.max_row)
 		if sheet.max_column < 3:
 				data['error'] = 'There should be username, email, password'
@@ -263,7 +319,6 @@ def admin_upload(request, format='None'):
 						user.save()
 				except:
 						data['user_list'].append(username)
-						print(data['user_list'])
 		#response['status'] = status.HTTP_200_OK
 		return Response(data, status.HTTP_200_OK)
 

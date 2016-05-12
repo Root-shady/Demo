@@ -38,11 +38,14 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
 	'rest_framework',
+	'rest_framework.authtoken',
+	'corsheaders',
 	'demo',
 )
 
 MIDDLEWARE_CLASSES = (
     'django.contrib.sessions.middleware.SessionMiddleware',
+	'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -78,10 +81,10 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'mysql.connector.django',
+        'ENGINE': 'django.db.backends.mysql',
 		'USER': 'shady',
 		'PASSWORD': '6566619',
-		'NAME': 'shady_democopy',
+		'NAME': 'shady_project',
     }
 }
 
@@ -100,6 +103,15 @@ USE_L10N = True
 USE_TZ = True
 
 
+# Component settings
+REST_FRAMEWORK = {
+		'DEFAULT_PERMISSION_CLASSES':(
+				'rest_framework.permissions.IsAuthenticated',
+			),
+		'DEFAULT_AUTHENTICATION_CLASSES':(
+				'rest_framework.authentication.TokenAuthentication',
+			)
+		}
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.8/howto/static-files/
 
@@ -111,3 +123,6 @@ MEDIA_ROOT = os.path.join(os.path.dirname(BASE_DIR), 'collectStatic', 'media_roo
 STATICFILES_DIRS = (
 		os.path.join(BASE_DIR, 'static'),
 		)
+
+# The corheader 
+CORS_ORIGIN_ALLOW_ALL = True
